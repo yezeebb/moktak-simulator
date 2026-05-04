@@ -15,7 +15,7 @@
             background-color: #000; 
             font-family: 'Noto Sans KR', sans-serif;
             color: white;
-            touch-action: none; /* 모바일에서 화면 스크롤 방지 */
+            touch-action: none; 
         }
 
         #game-container {
@@ -27,10 +27,10 @@
         }
 
         canvas { 
-            transform: scaleX(-1); /* 거울 모드 */
+            transform: scaleX(-1); 
             width: 100vw;
             height: 100vh;
-            object-fit: cover; /* 화면 비율에 맞게 꽉 채우기 */
+            object-fit: cover; 
         }
         
         video { display: none; }
@@ -111,7 +111,6 @@
             text-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
         }
 
-        /* 📱 모바일 환경 반응형 UI */
         @media (max-width: 768px) {
             .counter-ui { font-size: 18px; padding: 10px 15px; top: 15px; left: 15px; }
             .top-ui { top: 15px; right: 15px; gap: 8px; }
@@ -190,7 +189,6 @@
             source.start(0);
         }
 
-        // 모바일 터치 이벤트 추가 지원
         const unlockAudio = () => {
             if (audioCtx.state === 'suspended') audioCtx.resume();
         };
@@ -244,7 +242,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['공덕', '열반'];
+        const hitPhrases = ['공덕', '열반', '해탈'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');
@@ -264,17 +262,22 @@
 
         let lastHitTime = 0; 
 
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
         function isFist(landmarks) {
-            return (
-                landmarks[8].y > landmarks[5].y && 
-                landmarks[12].y > landmarks[9].y && 
-                landmarks[16].y > landmarks[13].y && 
-                landmarks[20].y > landmarks[17].y    
-            );
+            const wrist = landmarks[0]; 
+            
+            const isIndexFolded = getDistance(landmarks[8], wrist) < getDistance(landmarks[5], wrist);
+            const isMiddleFolded = getDistance(landmarks[12], wrist) < getDistance(landmarks[9], wrist);
+            const isRingFolded = getDistance(landmarks[16], wrist) < getDistance(landmarks[13], wrist);
+            const isPinkyFolded = getDistance(landmarks[20], wrist) < getDistance(landmarks[17], wrist);
+
+            return isIndexFolded && isMiddleFolded && isRingFolded && isPinkyFolded;
         }
 
         function onResults(results) {
-            // ✅ [핵심 수정] 폰 환경에서 카메라 비율(가로/세로)이 다를 때 캔버스 찌그러짐 방지
             if (canvasElement.width !== results.image.width || canvasElement.height !== results.image.height) {
                 canvasElement.width = results.image.width;
                 canvasElement.height = results.image.height;
@@ -283,9 +286,8 @@
             const canvasWidth = canvasElement.width;
             const canvasHeight = canvasElement.height;
 
-            // ✅ [핵심 수정] 기기 해상도에 맞춰 목탁과 채 크기 동적 자동 조절
             const baseSize = Math.min(canvasWidth, canvasHeight);
-            const moktakRadius = baseSize * 0.25; // 화면 짧은 쪽의 25% 크기
+            const moktakRadius = baseSize * 0.25; 
             const stickWidth = moktakRadius * 1.9; 
             const stickHeight = moktakRadius * 1.9;
 
@@ -302,7 +304,6 @@
                 flyingX += flyingVx;
                 flyingY += flyingVy;
 
-                // 동적 사이즈에 맞춘 화면 이탈 방지
                 if (flyingX - moktakRadius < 0) { flyingX = moktakRadius; flyingVx *= -1; }
                 if (flyingX + moktakRadius > canvasWidth) { flyingX = canvasWidth - moktakRadius; flyingVx *= -1; }
                 if (flyingY - moktakRadius < 0) { flyingY = moktakRadius; flyingVy *= -1; }
@@ -325,17 +326,20 @@
                     if (handedness === 'Right') {
                         if (isPinned || isMiniGame) {
                             if (isFist(landmarks)) {
-                                activeSticks.push({ x: landmarks[9].x * canvasWidth, y: landmarks[9].y * canvasHeight });
+                                // ✅ [수정] 9번(손 중앙뼈)에서 10번(중지 두 번째 마디)로 변경
+                                activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
                             }
                         } else {
-                            currentMoktakX = landmarks[9].x * canvasWidth;
-                            currentMoktakY = landmarks[9].y * canvasHeight;
+                            // ✅ [수정] 목탁 위치도 자연스럽게 10번 관절로 변경
+                            currentMoktakX = landmarks[10].x * canvasWidth;
+                            currentMoktakY = landmarks[10].y * canvasHeight;
                             isMoktakActive = true;
                         }
                     } 
                     else if (handedness === 'Left') {
                         if (isFist(landmarks)) {
-                            activeSticks.push({ x: landmarks[9].x * canvasWidth, y: landmarks[9].y * canvasHeight });
+                            // ✅ [수정] 왼손 채 위치도 10번 관절로 변경
+                            activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
                         }
                     }
                 }
@@ -372,7 +376,6 @@
                         flyingVx = -flyingVx * 1.15;
                         flyingVy = -flyingVy * 1.15;
                         
-                        // 모바일에서는 화면이 좁을 수 있으니 최대 속도 제한을 해상도 비례로 설정
                         const maxSpeed = baseSize * 0.05; 
                         if (Math.abs(flyingVx) > maxSpeed) flyingVx = maxSpeed * Math.sign(flyingVx);
                         if (Math.abs(flyingVy) > maxSpeed) flyingVy = maxSpeed * Math.sign(flyingVy);
@@ -397,7 +400,7 @@
         hands.onResults(onResults);
 
         const video = document.createElement('video');
-        video.setAttribute('playsinline', ''); // 모바일 브라우저 카메라 호환성용
+        video.setAttribute('playsinline', ''); 
 
         const camera = new Camera(video, {
             onFrame: async () => { await hands.send({image: video}); },

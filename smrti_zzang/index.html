@@ -63,14 +63,15 @@
             pointer-events: none;
         }
 
-        /* 상단 UI 버튼 묶음 */
         .top-ui {
             position: absolute;
             top: 20px;
             right: 20px;
             display: flex;
+            flex-direction: column; 
             gap: 10px;
             z-index: 20;
+            align-items: flex-end;
         }
 
         .custom-btn {
@@ -93,7 +94,6 @@
             box-shadow: 0 0 15px rgba(255, 204, 0, 0.6);
         }
 
-        /* 공덕 카운터 스타일 */
         .counter-ui {
             position: absolute;
             top: 20px;
@@ -121,6 +121,8 @@
     <div class="counter-ui" id="merit-counter">누적 공덕: 0</div>
 
     <div class="top-ui">
+        <button id="sound-btn" class="custom-btn">소리 변경: 기본</button>
+        <button id="minigame-btn" class="custom-btn">미니게임 모드: OFF</button>
         <button id="pin-btn" class="custom-btn">목탁 고정 모드: OFF</button>
     </div>
 
@@ -129,9 +131,10 @@
         const canvasCtx = canvasElement.getContext('2d');
         const gameContainer = document.getElementById('game-container');
         const pinBtn = document.getElementById('pin-btn');
+        const minigameBtn = document.getElementById('minigame-btn');
+        const soundBtn = document.getElementById('sound-btn');
         const counterElement = document.getElementById('merit-counter');
         
-        // 로컬 스토리지에서 공덕 횟수 불러오기 (없으면 0)
         let meritCount = localStorage.getItem('myMeritCount') ? parseInt(localStorage.getItem('myMeritCount')) : 0;
         counterElement.innerText = `누적 공덕: ${meritCount}`;
 
@@ -149,12 +152,32 @@
             .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
             .then(decodedAudio => { soundBuffer = decodedAudio; });
 
+        // ✅ [수정] 통통 버전을 삭제하고 3가지 모드로 변경
+        let soundMode = 0; 
+        const soundRates = [1.0, 0.6]; // 기본(1.0), 묵직(0.6)
+        const soundLabels = ['기본', '묵직 (낮음)', '랜덤 🎲'];
+
+        soundBtn.addEventListener('click', (e) => {
+            soundMode = (soundMode + 1) % 3; // 3가지 모드 순환
+            soundBtn.textContent = `소리 변경: ${soundLabels[soundMode]}`;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            e.stopPropagation();
+        });
+
         function playMoktakSound() {
             if (!soundBuffer) return;
             if (audioCtx.state === 'suspended') audioCtx.resume(); 
 
             const source = audioCtx.createBufferSource();
             source.buffer = soundBuffer;
+            
+            // ✅ [수정] 랜덤 모드 인덱스 조정
+            if (soundMode === 2) {
+                source.playbackRate.value = Math.random() * 0.7 + 0.6; 
+            } else {
+                source.playbackRate.value = soundRates[soundMode]; 
+            }
+            
             source.connect(audioCtx.destination);
             source.start(0);
         }
@@ -164,23 +187,53 @@
         });
 
         let isPinned = false; 
+        let isMiniGame = false;
+
+        let flyingX = 640;
+        let flyingY = 360;
+        let flyingVx = 8; 
+        let flyingVy = 8; 
 
         pinBtn.addEventListener('click', (e) => {
             isPinned = !isPinned; 
-            
             if (isPinned) {
+                isMiniGame = false; 
+                minigameBtn.textContent = '미니게임 모드: OFF';
+                minigameBtn.classList.remove('active');
+                
                 pinBtn.textContent = '목탁 고정 모드: ON';
                 pinBtn.classList.add('active');
             } else {
                 pinBtn.textContent = '목탁 고정 모드: OFF';
                 pinBtn.classList.remove('active');
             }
-            
             if (audioCtx.state === 'suspended') audioCtx.resume();
             e.stopPropagation(); 
         });
 
-        const hitPhrases = ['공덕', '열반', '깨닫다', '나무아미타불 🙏', '성불하십시오', '중생아 사랑해'];
+        minigameBtn.addEventListener('click', (e) => {
+            isMiniGame = !isMiniGame;
+            if (isMiniGame) {
+                isPinned = false; 
+                pinBtn.textContent = '목탁 고정 모드: OFF';
+                pinBtn.classList.remove('active');
+
+                minigameBtn.textContent = '미니게임 모드: ON';
+                minigameBtn.classList.add('active');
+                
+                flyingX = canvasWidth / 2;
+                flyingY = canvasHeight / 2;
+                flyingVx = 8 * (Math.random() > 0.5 ? 1 : -1);
+                flyingVy = 8 * (Math.random() > 0.5 ? 1 : -1);
+            } else {
+                minigameBtn.textContent = '미니게임 모드: OFF';
+                minigameBtn.classList.remove('active');
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            e.stopPropagation();
+        });
+
+        const hitPhrases = ['극락', '열반', '깨닫다', '나무아미타불', '성불하십시오', '중생아 사랑해', '열반해'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');
@@ -205,7 +258,7 @@
         const stickWidth = 350; 
         const stickHeight = 350;  
 
-        let isColliding = false; 
+        let lastHitTime = 0; 
 
         function isFist(landmarks) {
             return (
@@ -223,70 +276,89 @@
 
             let currentMoktakX = -1000;
             let currentMoktakY = -1000;
-            let currentStickX = -1000;
-            let currentStickY = -1000;
-            
             let isMoktakActive = false;
-            let isStickActive = false;
+            
+            let activeSticks = []; 
 
-            if (isPinned) {
+            if (isMiniGame) {
+                flyingX += flyingVx;
+                flyingY += flyingVy;
+
+                if (flyingX - moktakRadius < 0 || flyingX + moktakRadius > canvasWidth) flyingVx *= -1;
+                if (flyingY - moktakRadius < 0 || flyingY + moktakRadius > canvasHeight) flyingVy *= -1;
+
+                currentMoktakX = flyingX;
+                currentMoktakY = flyingY;
+                isMoktakActive = true;
+            } else if (isPinned) {
                 currentMoktakX = canvasWidth / 2;
                 currentMoktakY = canvasHeight - moktakRadius - 50; 
                 isMoktakActive = true;
-                canvasCtx.drawImage(moktakImg, currentMoktakX - moktakRadius, currentMoktakY - moktakRadius, moktakRadius * 2, moktakRadius * 2);
             }
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                     const landmarks = results.multiHandLandmarks[i];
-                    const handedness = results.multiHandedness[i].label;
+                    const handedness = results.multiHandedness[i].label; 
 
                     if (handedness === 'Right') {
-                        if (!isPinned) {
+                        if (isPinned || isMiniGame) {
+                            if (isFist(landmarks)) {
+                                activeSticks.push({ x: landmarks[9].x * canvasWidth, y: landmarks[9].y * canvasHeight });
+                            }
+                        } else {
                             currentMoktakX = landmarks[9].x * canvasWidth;
                             currentMoktakY = landmarks[9].y * canvasHeight;
                             isMoktakActive = true;
-                            canvasCtx.drawImage(moktakImg, currentMoktakX - moktakRadius, currentMoktakY - moktakRadius, moktakRadius * 2, moktakRadius * 2);
                         }
                     } 
                     else if (handedness === 'Left') {
-                        const fistClenched = isFist(landmarks);
-                        if (fistClenched) {
-                            currentStickX = landmarks[9].x * canvasWidth;
-                            currentStickY = landmarks[9].y * canvasHeight;
-                            isStickActive = true;
-                            
-                            canvasCtx.drawImage(stickImg, currentStickX - stickWidth/2, currentStickY - stickHeight/2, stickWidth, stickHeight);
-                        } else {
-                            isStickActive = false;
+                        if (isFist(landmarks)) {
+                            activeSticks.push({ x: landmarks[9].x * canvasWidth, y: landmarks[9].y * canvasHeight });
                         }
                     }
                 }
-
-                if (isMoktakActive && isStickActive) {
-                    const dist = Math.sqrt(Math.pow(currentStickX - currentMoktakX, 2) + Math.pow(currentStickY - currentMoktakY, 2));
-
-                    if (dist < moktakRadius) {
-                        if (!isColliding) {
-                            playMoktakSound();
-                            spawnFloatingText(); 
-                            
-                            // 목탁을 칠 때마다 공덕 카운트 증가 및 저장
-                            meritCount++;
-                            counterElement.innerText = `누적 공덕: ${meritCount}`;
-                            localStorage.setItem('myMeritCount', meritCount);
-
-                            isColliding = true; 
-                        }
-                    } else {
-                        isColliding = false; 
-                    }
-                } else {
-                    isColliding = false;
-                }
-            } else {
-                isColliding = false;
             }
+
+            if (isMoktakActive) {
+                canvasCtx.drawImage(moktakImg, currentMoktakX - moktakRadius, currentMoktakY - moktakRadius, moktakRadius * 2, moktakRadius * 2);
+            }
+
+            let hitDetected = false;
+
+            for (let stick of activeSticks) {
+                canvasCtx.drawImage(stickImg, stick.x - stickWidth/2, stick.y - stickHeight/2, stickWidth, stickHeight);
+                
+                if (isMoktakActive) {
+                    const dist = Math.sqrt(Math.pow(stick.x - currentMoktakX, 2) + Math.pow(stick.y - currentMoktakY, 2));
+                    if (dist < moktakRadius) {
+                        hitDetected = true;
+                    }
+                }
+            }
+
+            const now = Date.now();
+            if (hitDetected) {
+                if (now - lastHitTime > 150) { 
+                    playMoktakSound();
+                    spawnFloatingText(); 
+                    
+                    meritCount++;
+                    counterElement.innerText = `누적 공덕: ${meritCount}`;
+                    localStorage.setItem('myMeritCount', meritCount);
+
+                    if (isMiniGame) {
+                        flyingVx = -flyingVx * 1.15;
+                        flyingVy = -flyingVy * 1.15;
+                        
+                        if (Math.abs(flyingVx) > 35) flyingVx = 35 * Math.sign(flyingVx);
+                        if (Math.abs(flyingVy) > 35) flyingVy = 35 * Math.sign(flyingVy);
+                    }
+                    
+                    lastHitTime = now;
+                }
+            }
+
             canvasCtx.restore();
         }
 

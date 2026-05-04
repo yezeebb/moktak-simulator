@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI 가상 목탁 시뮬레이터</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -14,6 +15,7 @@
             background-color: #000; 
             font-family: 'Noto Sans KR', sans-serif;
             color: white;
+            touch-action: none; /* 모바일에서 화면 스크롤 방지 */
         }
 
         #game-container {
@@ -25,10 +27,10 @@
         }
 
         canvas { 
-            transform: scaleX(-1); 
+            transform: scaleX(-1); /* 거울 모드 */
             width: 100vw;
             height: 100vh;
-            object-fit: cover; 
+            object-fit: cover; /* 화면 비율에 맞게 꽉 채우기 */
         }
         
         video { display: none; }
@@ -108,6 +110,14 @@
             z-index: 20;
             text-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
         }
+
+        /* 📱 모바일 환경 반응형 UI */
+        @media (max-width: 768px) {
+            .counter-ui { font-size: 18px; padding: 10px 15px; top: 15px; left: 15px; }
+            .top-ui { top: 15px; right: 15px; gap: 8px; }
+            .custom-btn { padding: 10px 16px; font-size: 14px; }
+            .guide { font-size: 14px; bottom: 30px; }
+        }
     </style>
 </head>
 <body>
@@ -152,13 +162,12 @@
             .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
             .then(decodedAudio => { soundBuffer = decodedAudio; });
 
-        // ✅ [수정] 통통 버전을 삭제하고 3가지 모드로 변경
         let soundMode = 0; 
-        const soundRates = [1.0, 0.6]; // 기본(1.0), 묵직(0.6)
+        const soundRates = [1.0, 0.6]; 
         const soundLabels = ['기본', '묵직 (낮음)', '랜덤 🎲'];
 
         soundBtn.addEventListener('click', (e) => {
-            soundMode = (soundMode + 1) % 3; // 3가지 모드 순환
+            soundMode = (soundMode + 1) % 3; 
             soundBtn.textContent = `소리 변경: ${soundLabels[soundMode]}`;
             if (audioCtx.state === 'suspended') audioCtx.resume();
             e.stopPropagation();
@@ -171,7 +180,6 @@
             const source = audioCtx.createBufferSource();
             source.buffer = soundBuffer;
             
-            // ✅ [수정] 랜덤 모드 인덱스 조정
             if (soundMode === 2) {
                 source.playbackRate.value = Math.random() * 0.7 + 0.6; 
             } else {
@@ -182,9 +190,12 @@
             source.start(0);
         }
 
-        document.body.addEventListener('click', () => {
+        // 모바일 터치 이벤트 추가 지원
+        const unlockAudio = () => {
             if (audioCtx.state === 'suspended') audioCtx.resume();
-        });
+        };
+        document.body.addEventListener('click', unlockAudio);
+        document.body.addEventListener('touchstart', unlockAudio, {passive: true});
 
         let isPinned = false; 
         let isMiniGame = false;
@@ -221,8 +232,8 @@
                 minigameBtn.textContent = '미니게임 모드: ON';
                 minigameBtn.classList.add('active');
                 
-                flyingX = canvasWidth / 2;
-                flyingY = canvasHeight / 2;
+                flyingX = canvasElement.width / 2;
+                flyingY = canvasElement.height / 2;
                 flyingVx = 8 * (Math.random() > 0.5 ? 1 : -1);
                 flyingVy = 8 * (Math.random() > 0.5 ? 1 : -1);
             } else {
@@ -233,7 +244,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['극락', '열반', '깨닫다', '나무아미타불', '성불하십시오', '중생아 사랑해', '열반해'];
+        const hitPhrases = ['공덕', '열반', '깨닫다', '나무아미타불 🙏', '성불하십시오', '중생아 사랑해', '나이스샷!'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');
@@ -251,13 +262,6 @@
             setTimeout(() => { el.remove(); }, 1200);
         }
 
-        const canvasWidth = 1280;
-        const canvasHeight = 720;
-        
-        const moktakRadius = 180; 
-        const stickWidth = 350; 
-        const stickHeight = 350;  
-
         let lastHitTime = 0; 
 
         function isFist(landmarks) {
@@ -270,6 +274,21 @@
         }
 
         function onResults(results) {
+            // ✅ [핵심 수정] 폰 환경에서 카메라 비율(가로/세로)이 다를 때 캔버스 찌그러짐 방지
+            if (canvasElement.width !== results.image.width || canvasElement.height !== results.image.height) {
+                canvasElement.width = results.image.width;
+                canvasElement.height = results.image.height;
+            }
+
+            const canvasWidth = canvasElement.width;
+            const canvasHeight = canvasElement.height;
+
+            // ✅ [핵심 수정] 기기 해상도에 맞춰 목탁과 채 크기 동적 자동 조절
+            const baseSize = Math.min(canvasWidth, canvasHeight);
+            const moktakRadius = baseSize * 0.25; // 화면 짧은 쪽의 25% 크기
+            const stickWidth = moktakRadius * 1.9; 
+            const stickHeight = moktakRadius * 1.9;
+
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasWidth, canvasHeight);
             canvasCtx.drawImage(results.image, 0, 0, canvasWidth, canvasHeight);
@@ -277,15 +296,17 @@
             let currentMoktakX = -1000;
             let currentMoktakY = -1000;
             let isMoktakActive = false;
-            
             let activeSticks = []; 
 
             if (isMiniGame) {
                 flyingX += flyingVx;
                 flyingY += flyingVy;
 
-                if (flyingX - moktakRadius < 0 || flyingX + moktakRadius > canvasWidth) flyingVx *= -1;
-                if (flyingY - moktakRadius < 0 || flyingY + moktakRadius > canvasHeight) flyingVy *= -1;
+                // 동적 사이즈에 맞춘 화면 이탈 방지
+                if (flyingX - moktakRadius < 0) { flyingX = moktakRadius; flyingVx *= -1; }
+                if (flyingX + moktakRadius > canvasWidth) { flyingX = canvasWidth - moktakRadius; flyingVx *= -1; }
+                if (flyingY - moktakRadius < 0) { flyingY = moktakRadius; flyingVy *= -1; }
+                if (flyingY + moktakRadius > canvasHeight) { flyingY = canvasHeight - moktakRadius; flyingVy *= -1; }
 
                 currentMoktakX = flyingX;
                 currentMoktakY = flyingY;
@@ -351,8 +372,10 @@
                         flyingVx = -flyingVx * 1.15;
                         flyingVy = -flyingVy * 1.15;
                         
-                        if (Math.abs(flyingVx) > 35) flyingVx = 35 * Math.sign(flyingVx);
-                        if (Math.abs(flyingVy) > 35) flyingVy = 35 * Math.sign(flyingVy);
+                        // 모바일에서는 화면이 좁을 수 있으니 최대 속도 제한을 해상도 비례로 설정
+                        const maxSpeed = baseSize * 0.05; 
+                        if (Math.abs(flyingVx) > maxSpeed) flyingVx = maxSpeed * Math.sign(flyingVx);
+                        if (Math.abs(flyingVy) > maxSpeed) flyingVy = maxSpeed * Math.sign(flyingVy);
                     }
                     
                     lastHitTime = now;
@@ -374,6 +397,8 @@
         hands.onResults(onResults);
 
         const video = document.createElement('video');
+        video.setAttribute('playsinline', ''); // 모바일 브라우저 카메라 호환성용
+
         const camera = new Camera(video, {
             onFrame: async () => { await hands.send({image: video}); },
             width: 1280, 

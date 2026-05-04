@@ -125,7 +125,7 @@
         <canvas class="output_canvas" width="1280" height="720"></canvas>
     </div>
     
-    <div class="guide">※ 사운드 재생을 위해 처음에 화면을 아무 곳이나 한 번 클릭해주세요.</div>
+    <div class="guide">※손을 캠에 인식시켜 주세요.</div>
 
     <div class="counter-ui" id="merit-counter">누적 공덕: 0</div>
 
@@ -239,7 +239,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['공덕', '열반', '🙏'];
+        const hitPhrases = ['공덕', '열반', '🙏', '🪷'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 가상 목탁 시뮬레이터</title>
+    <title>목탁 시뮬레이터</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     
@@ -244,7 +244,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['공덕', '열반', '깨닫다', '나무아미타불 🙏', '성불하십시오', '중생아 사랑해', '나이스샷!'];
+        const hitPhrases = ['공덕', '열반'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');

@@ -242,7 +242,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['공덕', '열반', '해탈'];
+        const hitPhrases = ['공덕', '열반', '중생아 사랑해'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');
@@ -323,14 +323,21 @@
                     const landmarks = results.multiHandLandmarks[i];
                     const handedness = results.multiHandedness[i].label; 
 
+                    // ✅ [추가] 손목(0번)과 중지 손등뼈(9번) 사이의 각도를 구해서 손의 회전값을 계산
+                    let dx = landmarks[9].x - landmarks[0].x;
+                    let dy = landmarks[9].y - landmarks[0].y;
+                    let handAngle = Math.atan2(dy, dx);
+
                     if (handedness === 'Right') {
                         if (isPinned || isMiniGame) {
                             if (isFist(landmarks)) {
-                                // ✅ [수정] 9번(손 중앙뼈)에서 10번(중지 두 번째 마디)로 변경
-                                activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
+                                activeSticks.push({ 
+                                    x: landmarks[10].x * canvasWidth, 
+                                    y: landmarks[10].y * canvasHeight,
+                                    angle: handAngle // 👈 객체에 각도 저장
+                                });
                             }
                         } else {
-                            // ✅ [수정] 목탁 위치도 자연스럽게 10번 관절로 변경
                             currentMoktakX = landmarks[10].x * canvasWidth;
                             currentMoktakY = landmarks[10].y * canvasHeight;
                             isMoktakActive = true;
@@ -338,8 +345,11 @@
                     } 
                     else if (handedness === 'Left') {
                         if (isFist(landmarks)) {
-                            // ✅ [수정] 왼손 채 위치도 10번 관절로 변경
-                            activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
+                            activeSticks.push({ 
+                                x: landmarks[10].x * canvasWidth, 
+                                y: landmarks[10].y * canvasHeight,
+                                angle: handAngle // 👈 객체에 각도 저장
+                            });
                         }
                     }
                 }
@@ -352,7 +362,14 @@
             let hitDetected = false;
 
             for (let stick of activeSticks) {
-                canvasCtx.drawImage(stickImg, stick.x - stickWidth/2, stick.y - stickHeight/2, stickWidth, stickHeight);
+                // ✅ [핵심 수정] 채를 그릴 때 저장해둔 손의 각도에 맞춰 회전(rotate) 시킴
+                canvasCtx.save();
+                canvasCtx.translate(stick.x, stick.y); // 회전축을 채의 중심으로 이동
+                canvasCtx.rotate(stick.angle + Math.PI / 2); // 손 방향에 맞춰 이미지 회전 (+90도 보정)
+                
+                // 중심축을 기준으로 그리기 위해 좌표를 절반씩 빼줌
+                canvasCtx.drawImage(stickImg, -stickWidth/2, -stickHeight/2, stickWidth, stickHeight);
+                canvasCtx.restore(); // 캔버스 상태 복구
                 
                 if (isMoktakActive) {
                     const dist = Math.sqrt(Math.pow(stick.x - currentMoktakX, 2) + Math.pow(stick.y - currentMoktakY, 2));

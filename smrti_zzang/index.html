@@ -209,7 +209,6 @@
                 isMiniGame = false; 
                 minigameBtn.textContent = '미니게임 모드: OFF';
                 minigameBtn.classList.remove('active');
-                
                 pinBtn.textContent = '목탁 고정 모드: ON';
                 pinBtn.classList.add('active');
             } else {
@@ -226,10 +225,8 @@
                 isPinned = false; 
                 pinBtn.textContent = '목탁 고정 모드: OFF';
                 pinBtn.classList.remove('active');
-
                 minigameBtn.textContent = '미니게임 모드: ON';
                 minigameBtn.classList.add('active');
-                
                 flyingX = canvasElement.width / 2;
                 flyingY = canvasElement.height / 2;
                 flyingVx = 8 * (Math.random() > 0.5 ? 1 : -1);
@@ -260,23 +257,22 @@
             setTimeout(() => { el.remove(); }, 1200);
         }
 
-        let lastHitTime = 0; 
-
         function getDistance(p1, p2) {
             return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
         }
 
-        // 👊 방향 상관없이 주먹(네 손가락 굽힘) 인식하는 로직 유지
         function isFist(landmarks) {
             const wrist = landmarks[0]; 
-            
             const isIndexFolded = getDistance(landmarks[8], wrist) < getDistance(landmarks[5], wrist);
             const isMiddleFolded = getDistance(landmarks[12], wrist) < getDistance(landmarks[9], wrist);
             const isRingFolded = getDistance(landmarks[16], wrist) < getDistance(landmarks[13], wrist);
             const isPinkyFolded = getDistance(landmarks[20], wrist) < getDistance(landmarks[17], wrist);
-
             return isIndexFolded && isMiddleFolded && isRingFolded && isPinkyFolded;
         }
+
+        // ✅ [상태 관리용 변수 추가] 
+        // 채가 목탁 "안에" 들어가 있는지 여부를 저장합니다.
+        let wasInside = false; 
 
         function onResults(results) {
             if (canvasElement.width !== results.image.width || canvasElement.height !== results.image.height) {
@@ -286,7 +282,6 @@
 
             const canvasWidth = canvasElement.width;
             const canvasHeight = canvasElement.height;
-
             const baseSize = Math.min(canvasWidth, canvasHeight);
             const moktakRadius = baseSize * 0.25; 
             const stickWidth = moktakRadius * 1.9; 
@@ -304,12 +299,10 @@
             if (isMiniGame) {
                 flyingX += flyingVx;
                 flyingY += flyingVy;
-
                 if (flyingX - moktakRadius < 0) { flyingX = moktakRadius; flyingVx *= -1; }
                 if (flyingX + moktakRadius > canvasWidth) { flyingX = canvasWidth - moktakRadius; flyingVx *= -1; }
                 if (flyingY - moktakRadius < 0) { flyingY = moktakRadius; flyingVy *= -1; }
                 if (flyingY + moktakRadius > canvasHeight) { flyingY = canvasHeight - moktakRadius; flyingVy *= -1; }
-
                 currentMoktakX = flyingX;
                 currentMoktakY = flyingY;
                 isMoktakActive = true;
@@ -327,11 +320,7 @@
                     if (handedness === 'Right') {
                         if (isPinned || isMiniGame) {
                             if (isFist(landmarks)) {
-                                // 회전 로직 제거, 단순히 10번 관절의 위치만 저장
-                                activeSticks.push({ 
-                                    x: landmarks[10].x * canvasWidth, 
-                                    y: landmarks[10].y * canvasHeight
-                                });
+                                activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
                             }
                         } else {
                             currentMoktakX = landmarks[10].x * canvasWidth;
@@ -341,10 +330,7 @@
                     } 
                     else if (handedness === 'Left') {
                         if (isFist(landmarks)) {
-                            activeSticks.push({ 
-                                x: landmarks[10].x * canvasWidth, 
-                                y: landmarks[10].y * canvasHeight
-                            });
+                            activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
                         }
                     }
                 }
@@ -354,45 +340,46 @@
                 canvasCtx.drawImage(moktakImg, currentMoktakX - moktakRadius, currentMoktakY - moktakRadius, moktakRadius * 2, moktakRadius * 2);
             }
 
-            let hitDetected = false;
+            // ✅ [수정된 충돌 감지 로직]
+            let currentlyInside = false; // 이번 프레임에서 채가 목탁 안에 있는지 확인
 
             for (let stick of activeSticks) {
-                // ✅ [복구] 회전(rotate) 없이 각도 고정으로 채 이미지 그리기!
                 canvasCtx.drawImage(stickImg, stick.x - stickWidth/2, stick.y - stickHeight/2, stickWidth, stickHeight);
                 
                 if (isMoktakActive) {
-                    const dist = Math.sqrt(Math.pow(stick.x - currentMoktakX, 2) + Math.pow(stick.y - currentMoktakY, 2));
+                    const dist = getDistance(stick, {x: currentMoktakX, y: currentMoktakY});
                     if (dist < moktakRadius) {
-                        hitDetected = true;
+                        currentlyInside = true; // 채 하나라도 들어가 있으면 참
                     }
                 }
             }
 
-            const now = Date.now();
-            if (hitDetected) {
-                if (now - lastHitTime > 150) { 
-                    playMoktakSound();
-                    spawnFloatingText(); 
-                    
-                    meritCount++;
-                    counterElement.innerText = `누적 공덕: ${meritCount}`;
-                    localStorage.setItem('myMeritCount', meritCount);
+            // 💡 핵심: "지금은 안에 있는데(currentlyInside), 아까는 밖에 있었다면(wasInside === false)" 소리 재생!
+            if (currentlyInside && !wasInside) {
+                playMoktakSound();
+                spawnFloatingText(); 
+                
+                meritCount++;
+                counterElement.innerText = `누적 공덕: ${meritCount}`;
+                localStorage.setItem('myMeritCount', meritCount);
 
-                    if (isMiniGame) {
-                        flyingVx = -flyingVx * 1.15;
-                        flyingVy = -flyingVy * 1.15;
-                        
-                        const maxSpeed = baseSize * 0.05; 
-                        if (Math.abs(flyingVx) > maxSpeed) flyingVx = maxSpeed * Math.sign(flyingVx);
-                        if (Math.abs(flyingVy) > maxSpeed) flyingVy = maxSpeed * Math.sign(flyingVy);
-                    }
-                    
-                    lastHitTime = now;
+                if (isMiniGame) {
+                    flyingVx = -flyingVx * 1.15;
+                    flyingVy = -flyingVy * 1.15;
+                    const maxSpeed = baseSize * 0.05; 
+                    if (Math.abs(flyingVx) > maxSpeed) flyingVx = maxSpeed * Math.sign(flyingVx);
+                    if (Math.abs(flyingVy) > maxSpeed) flyingVy = maxSpeed * Math.sign(flyingVy);
                 }
             }
+
+            // 이번 프레임의 상태를 기록하여 다음 프레임에서 사용
+            wasInside = currentlyInside;
 
             canvasCtx.restore();
         }
+
+        if (window.activeCamera) { window.activeCamera.stop(); }
+        if (window.activeHands) { window.activeHands.close(); }
 
         const hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
@@ -404,6 +391,7 @@
             minTrackingConfidence: 0.7
         });
         hands.onResults(onResults);
+        window.activeHands = hands;
 
         const video = document.createElement('video');
         video.setAttribute('playsinline', ''); 
@@ -413,6 +401,7 @@
             width: 1280, 
             height: 720
         });
+        window.activeCamera = camera;
         camera.start();
 
     </script>

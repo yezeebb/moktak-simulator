@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>목탁 시뮬레이터</title>
+    <title>AI 가상 목탁 시뮬레이터</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     
@@ -242,7 +242,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['공덕', '열반'];
+        const hitPhrases = ['공덕', '열반', '깨닫다', '나무아미타불 🙏', '성불하십시오', '중생아 사랑해', '나이스샷!'];
 
         function spawnFloatingText() {
             const el = document.createElement('div');
@@ -266,6 +266,7 @@
             return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
         }
 
+        // 👊 방향 상관없이 주먹(네 손가락 굽힘) 인식하는 로직 유지
         function isFist(landmarks) {
             const wrist = landmarks[0]; 
             
@@ -326,11 +327,13 @@
                     if (handedness === 'Right') {
                         if (isPinned || isMiniGame) {
                             if (isFist(landmarks)) {
-                                // ✅ [수정] 9번(손 중앙뼈)에서 10번(중지 두 번째 마디)로 변경
-                                activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
+                                // 회전 로직 제거, 단순히 10번 관절의 위치만 저장
+                                activeSticks.push({ 
+                                    x: landmarks[10].x * canvasWidth, 
+                                    y: landmarks[10].y * canvasHeight
+                                });
                             }
                         } else {
-                            // ✅ [수정] 목탁 위치도 자연스럽게 10번 관절로 변경
                             currentMoktakX = landmarks[10].x * canvasWidth;
                             currentMoktakY = landmarks[10].y * canvasHeight;
                             isMoktakActive = true;
@@ -338,8 +341,10 @@
                     } 
                     else if (handedness === 'Left') {
                         if (isFist(landmarks)) {
-                            // ✅ [수정] 왼손 채 위치도 10번 관절로 변경
-                            activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
+                            activeSticks.push({ 
+                                x: landmarks[10].x * canvasWidth, 
+                                y: landmarks[10].y * canvasHeight
+                            });
                         }
                     }
                 }
@@ -352,6 +357,7 @@
             let hitDetected = false;
 
             for (let stick of activeSticks) {
+                // ✅ [복구] 회전(rotate) 없이 각도 고정으로 채 이미지 그리기!
                 canvasCtx.drawImage(stickImg, stick.x - stickWidth/2, stick.y - stickHeight/2, stickWidth, stickHeight);
                 
                 if (isMoktakActive) {

@@ -27,7 +27,7 @@
         }
 
         canvas { 
-            transform: scaleX(-1); 
+            transform: scaleX(-1); /* 거울 모드 */
             width: 100vw;
             height: 100vh;
             object-fit: cover; 
@@ -125,7 +125,7 @@
         <canvas class="output_canvas" width="1280" height="720"></canvas>
     </div>
     
-    <div class="guide">※오른손 주먹 쥐고 통통통...</div>
+    <div class="guide">※ 양 손을 들고 ✊☝️.</div>
 
     <div class="counter-ui" id="merit-counter">누적 공덕: 0</div>
 
@@ -239,7 +239,7 @@
             e.stopPropagation();
         });
 
-        const hitPhrases = ['공덕', '열반', '🙏', '🪷'];
+        const hitPhrases = ['공덕', '🪷' ];
 
         function spawnFloatingText() {
             const el = document.createElement('div');
@@ -261,17 +261,32 @@
             return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
         }
 
-        function isFist(landmarks) {
-            const wrist = landmarks[0]; 
-            const isIndexFolded = getDistance(landmarks[8], wrist) < getDistance(landmarks[5], wrist);
-            const isMiddleFolded = getDistance(landmarks[12], wrist) < getDistance(landmarks[9], wrist);
-            const isRingFolded = getDistance(landmarks[16], wrist) < getDistance(landmarks[13], wrist);
-            const isPinkyFolded = getDistance(landmarks[20], wrist) < getDistance(landmarks[17], wrist);
-            return isIndexFolded && isMiddleFolded && isRingFolded && isPinkyFolded;
+        // ✅ [수정 1: Moktak 용] 예민한 주먹 감지 (조금만 구부려도 인식)
+        function isSlightlyBentFist(landmarks) {
+            // 화면 기준 (Y축 아래가 +) 끝점(TIP)이 관절(MCP)보다 아래에 있으면 구부린 것으로 판단
+            // 검지(8, 5), 중지(12, 9), 약지(16, 13), 새끼(20, 17) 확인
+            const indexFolded = landmarks[8].y > landmarks[5].y;
+            const middleFolded = landmarks[12].y > landmarks[9].y;
+            const ringFolded = landmarks[16].y > landmarks[13].y;
+            const pinkyFolded = landmarks[20].y > landmarks[17].y;
+            
+            // 엄지를 제외한 네 손가락이 조금이라도 구부려져 있으면 주먹으로 인정
+            return indexFolded && middleFolded && ringFolded && pinkyFolded;
         }
 
-        // ✅ [상태 관리용 변수 추가] 
-        // 채가 목탁 "안에" 들어가 있는지 여부를 저장합니다.
+        // ✅ [수정 2: Stick 용] 검지만 편 상태 (포인팅) 감지
+        function isPointing(landmarks) {
+            // 검지 세움 확인: 끝점(8)이 중간관절(6)보다 위에 있음 (Y값이 작음)
+            const indexErect = landmarks[8].y < landmarks[6].y;
+            
+            // 나머지 손가락 구부림 확인 (중지만 확인해도 충분히 구분됨)
+            // 중지 구부림: 끝점(12)이 관절(10)보다 아래에 있음
+            const middleFolded = landmarks[12].y > landmarks[10].y;
+            
+            // 검지는 펴고 중지는 굽혔을 때만 채로 인식
+            return indexErect && middleFolded;
+        }
+
         let wasInside = false; 
 
         function onResults(results) {
@@ -317,20 +332,30 @@
                     const landmarks = results.multiHandLandmarks[i];
                     const handedness = results.multiHandedness[i].label; 
 
-                    if (handedness === 'Right') {
-                        if (isPinned || isMiniGame) {
-                            if (isFist(landmarks)) {
-                                activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
-                            }
-                        } else {
-                            currentMoktakX = landmarks[10].x * canvasWidth;
-                            currentMoktakY = landmarks[10].y * canvasHeight;
-                            isMoktakActive = true;
+                    // ✋ 오른손 (카메라 Left) -> Stick 역할
+                    if (handedness === 'Left') {
+                        // 검지 포인팅 감지
+                        if (isPointing(landmarks)) {
+                            // 채 위치: 검지 중간 관절 (6번)
+                            activeSticks.push({ x: landmarks[6].x * canvasWidth, y: landmarks[6].y * canvasHeight });
                         }
                     } 
-                    else if (handedness === 'Left') {
-                        if (isFist(landmarks)) {
-                            activeSticks.push({ x: landmarks[10].x * canvasWidth, y: landmarks[10].y * canvasHeight });
+                    // 🤚 왼손 (카메라 Right) -> Moktak 역할
+                    else if (handedness === 'Right') {
+                        // 고정/미니게임 모드일 땐 왼손도 채로 변신 가능
+                        if (isPinned || isMiniGame) {
+                            if (isPointing(landmarks)) {
+                                activeSticks.push({ x: landmarks[6].x * canvasWidth, y: landmarks[6].y * canvasHeight });
+                            }
+                        } 
+                        // 기본 모드: 왼손 주먹 쥐면 목탁 나옴
+                        else {
+                            // 예민한 주먹 감지 적용
+                            if (isSlightlyBentFist(landmarks)) {
+                                currentMoktakX = landmarks[10].x * canvasWidth;
+                                currentMoktakY = landmarks[10].y * canvasHeight;
+                                isMoktakActive = true;
+                            }
                         }
                     }
                 }
@@ -340,8 +365,7 @@
                 canvasCtx.drawImage(moktakImg, currentMoktakX - moktakRadius, currentMoktakY - moktakRadius, moktakRadius * 2, moktakRadius * 2);
             }
 
-            // ✅ [수정된 충돌 감지 로직]
-            let currentlyInside = false; // 이번 프레임에서 채가 목탁 안에 있는지 확인
+            let currentlyInside = false; 
 
             for (let stick of activeSticks) {
                 canvasCtx.drawImage(stickImg, stick.x - stickWidth/2, stick.y - stickHeight/2, stickWidth, stickHeight);
@@ -349,12 +373,11 @@
                 if (isMoktakActive) {
                     const dist = getDistance(stick, {x: currentMoktakX, y: currentMoktakY});
                     if (dist < moktakRadius) {
-                        currentlyInside = true; // 채 하나라도 들어가 있으면 참
+                        currentlyInside = true; 
                     }
                 }
             }
 
-            // 💡 핵심: "지금은 안에 있는데(currentlyInside), 아까는 밖에 있었다면(wasInside === false)" 소리 재생!
             if (currentlyInside && !wasInside) {
                 playMoktakSound();
                 spawnFloatingText(); 
@@ -372,7 +395,6 @@
                 }
             }
 
-            // 이번 프레임의 상태를 기록하여 다음 프레임에서 사용
             wasInside = currentlyInside;
 
             canvasCtx.restore();

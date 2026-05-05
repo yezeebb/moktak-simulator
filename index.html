@@ -162,9 +162,26 @@
 <body>
 
     <div id="name-modal" class="modal-overlay">
-        <h2 style="color: #ffcc00;">법명을 입력하십시오...🙏</h2>
-        <input type="text" id="nickname-input" placeholder="예: 달마대사" maxlength="10">
-        <button class="custom-btn" onclick="startApp()">수행 시작</button>
+        
+        <div id="new-user-ui" style="display: none; text-align: center;">
+            <h2 style="color: #ffcc00;">법명을 입력하십시오...🙏</h2>
+            <input type="text" id="nickname-input" placeholder="예: 달마대사" maxlength="10">
+            <br>
+            <button class="custom-btn" onclick="startGame('new')">수행 시작</button>
+        </div>
+
+        <div id="returning-user-ui" style="display: none; text-align: center;">
+            <h2 style="color: #ffcc00;"><span id="welcome-name"></span>보살님, 돌아오셨군요! 🙏</h2>
+            <p style="color: white; margin-bottom: 25px;">이전 공덕을 이어서 쌓으시겠습니까?</p>
+            
+            <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 15px;">
+                <button class="custom-btn" onclick="startGame('continue')">이어서 쌓기</button>
+                <button class="custom-btn" style="background-color: #555; border-color: #777;" onclick="startGame('reset')">환생 하기 (0점)</button>
+            </div>
+            
+            <button class="custom-btn" style="background-color: transparent; border: none; text-decoration: underline; font-size: 14px; padding: 5px;" onclick="showNewUserUI()">다른 법명으로 시작</button>
+        </div>
+
     </div>
 
     <div id="ranking-modal" class="modal-overlay">
@@ -219,34 +236,72 @@
         const counterElement = document.getElementById('merit-counter');
         const displayNickname = document.getElementById('display-nickname');
         
-        // 이전에 저장된 닉네임이 있으면 입력창에 미리 채워둠
-        if (nickname) document.getElementById('nickname-input').value = nickname;
+        // --- [NEW] 접속 기록 확인 후 모달 창 띄우기 ---
+        if (nickname) {
+            // 접속했던 닉네임이 있으면 '환영합니다' 화면 띄움
+            document.getElementById('returning-user-ui').style.display = 'block';
+            document.getElementById('welcome-name').innerText = nickname;
+        } else {
+            // 처음 접속이면 '이름 입력' 화면 띄움
+            document.getElementById('new-user-ui').style.display = 'block';
+        }
 
-        function startApp() {
-            const input = document.getElementById('nickname-input').value.trim();
-            if (!input) { alert("법명을 입력해야 수행을 시작할 수 있습니다."); return; }
-            
-            nickname = input;
-            localStorage.setItem('moktak_nick', nickname);
+        // 다른 법명으로 시작 버튼을 눌렀을 때
+        function showNewUserUI() {
+            document.getElementById('returning-user-ui').style.display = 'none';
+            document.getElementById('new-user-ui').style.display = 'block';
+            document.getElementById('nickname-input').value = ""; 
+        }
+
+        // 수행 시작 함수 (모드에 따라 동작)
+        function startGame(mode) {
+            // 1. 신규/다른 이름 모드일 경우 이름 가져오기
+            if (mode === 'new') {
+                const input = document.getElementById('nickname-input').value.trim();
+                if (!input) { alert("법명을 입력해야 수행을 시작할 수 있습니다."); return; }
+                
+                // 이름이 바뀌었다면 다른 사람이므로 로컬 점수 0으로 초기화
+                if (nickname !== input) {
+                    meritCount = 0; 
+                }
+                nickname = input;
+                localStorage.setItem('moktak_nick', nickname);
+            }
+
             displayNickname.innerText = nickname;
             document.getElementById('name-modal').style.display = 'none';
             
-            // 파이어베이스에서 기존 점수 확인 후 더 높은 점수로 동기화
-            db.collection("rankings").doc(nickname).get().then((doc) => {
-                if (doc.exists) {
-                    const serverScore = doc.data().score;
-                    if (serverScore > meritCount) {
-                        meritCount = serverScore;
-                        localStorage.setItem('myMeritCount', meritCount);
+            // 2. 초기화(새로하기) 모드일 경우
+            if (mode === 'reset') {
+                meritCount = 0;
+                localStorage.setItem('myMeritCount', 0);
+                syncScoreToServer(); // DB 점수도 0으로 과감히 덮어씌움!
+                finishStartGame();
+            } 
+            // 3. 이어서 하기 또는 신규 유저일 경우 DB 동기화
+            else {
+                db.collection("rankings").doc(nickname).get().then((doc) => {
+                    if (doc.exists) {
+                        // 서버에 점수가 있으면 내 로컬 점수와 비교해서 높은 걸로 맞춤
+                        const serverScore = doc.data().score;
+                        if (serverScore > meritCount) {
+                            meritCount = serverScore;
+                        }
+                    } else if (mode === 'new') {
+                        // 완전 새로운 닉네임이면 DB에도 없으니 무조건 0
+                        meritCount = 0;
                     }
-                }
-                updateCounterUI();
-            });
+                    localStorage.setItem('myMeritCount', meritCount);
+                    finishStartGame();
+                });
+            }
+        }
 
+        // 게임 시작 최종 마무리
+        function finishStartGame() {
+            updateCounterUI();
             isStarted = true;
-            
-            // 오디오 권한 잠금 해제 (버튼 클릭 시점이므로 확실함)
-            if (audioCtx.state === 'suspended') audioCtx.resume();
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         }
 
         function updateCounterUI() {
@@ -289,7 +344,7 @@
         }
 
         // ==========================================
-        // 4. 기존 목탁 시뮬레이터 로직 (그대로 유지)
+        // 4. 기존 목탁 시뮬레이터 로직 (사운드 및 손인식)
         // ==========================================
         const canvasElement = document.querySelector('.output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
@@ -298,7 +353,7 @@
         const minigameBtn = document.getElementById('minigame-btn');
         const soundBtn = document.getElementById('sound-btn');
         
-        updateCounterUI(); // 초기 UI 세팅
+        updateCounterUI(); 
 
         const moktakImg = new Image();
         moktakImg.src = 'moktak.png'; 
@@ -512,7 +567,7 @@
                 }
             }
 
-            // 충돌 감지 로직 및 파이어베이스 연동 추가 부분
+            // 충돌 감지 및 5회당 서버 동기화
             if (currentlyInside && !wasInside && isStarted) {
                 playMoktakSound();
                 spawnFloatingText(); 
@@ -521,7 +576,6 @@
                 updateCounterUI();
                 localStorage.setItem('myMeritCount', meritCount);
 
-                // 너무 잦은 서버 통신을 막기 위해 5번 칠 때마다 서버에 동기화
                 if (meritCount % 5 === 0) {
                     syncScoreToServer();
                 }
@@ -536,7 +590,6 @@
             }
 
             wasInside = currentlyInside;
-
             canvasCtx.restore();
         }
 

@@ -4,8 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>목탁 시뮬레이터</title>
+    
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     
     <style>
         body { 
@@ -109,6 +113,42 @@
             border-radius: 15px;
             z-index: 20;
             text-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .user-nickname {
+            font-size: 14px;
+            color: #fff;
+            margin-bottom: 5px;
+            font-weight: normal;
+        }
+
+        /* 모달 공통 스타일 */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100;
+        }
+
+        /* 닉네임 입력창 */
+        #name-modal input {
+            padding: 15px; font-size: 18px; border-radius: 8px; border: 2px solid #ffcc00;
+            margin-bottom: 20px; text-align: center; background: #222; color: white; outline: none;
+        }
+        
+        /* 랭킹창 스타일 */
+        #ranking-modal { display: none; z-index: 100; }
+        .ranking-box {
+            background-color: rgba(30, 30, 30, 0.95); border: 2px solid #ffcc00; border-radius: 15px;
+            padding: 20px; width: 300px; max-height: 400px; overflow-y: auto; text-align: center;
+        }
+        #ranking-list { list-style: none; padding: 0; margin: 15px 0; }
+        #ranking-list li {
+            display: flex; justify-content: space-between; padding: 10px 5px;
+            border-bottom: 1px solid rgba(255,204,0,0.3); font-size: 16px;
         }
 
         @media (max-width: 768px) {
@@ -121,31 +161,144 @@
 </head>
 <body>
 
+    <div id="name-modal" class="modal-overlay">
+        <h2 style="color: #ffcc00;">법명을 입력하십시오 🙏</h2>
+        <input type="text" id="nickname-input" placeholder="예: 방구석선사" maxlength="10">
+        <button class="custom-btn" onclick="startApp()">수행 시작</button>
+    </div>
+
+    <div id="ranking-modal" class="modal-overlay">
+        <div class="ranking-box">
+            <h3 style="margin: 0; color: #ffcc00;">🏆 글로벌 공덕 랭킹</h3>
+            <ul id="ranking-list"><li>수행자 정보를 불러오는 중...</li></ul>
+            <button class="custom-btn" onclick="closeRanking()">닫기</button>
+        </div>
+    </div>
+
     <div id="game-container">
         <canvas class="output_canvas" width="1280" height="720"></canvas>
     </div>
     
     <div class="guide">※ 양 손을 들고 ✊☝️.</div>
 
-    <div class="counter-ui" id="merit-counter">누적 공덕: 0</div>
+    <div class="counter-ui">
+        <div class="user-nickname" id="display-nickname">중생</div>
+        <div id="merit-counter">누적 공덕: 0</div>
+    </div>
 
     <div class="top-ui">
+        <button id="rank-btn" class="custom-btn" style="background-color: #ffcc00; color: #000;">🏆 랭킹 보기</button>
         <button id="sound-btn" class="custom-btn">소리 변경: 기본</button>
         <button id="minigame-btn" class="custom-btn">미니게임 모드: OFF</button>
         <button id="pin-btn" class="custom-btn">목탁 고정 모드: OFF</button>
     </div>
 
     <script>
+        // ==========================================
+        // 1. Firebase 설정 및 초기화
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDrd8XLjJr_oSv0SDxcQyUnoUGHOBlVbFk",
+            authDomain: "moktak-simulator.firebaseapp.com",
+            projectId: "moktak-simulator",
+            storageBucket: "moktak-simulator.firebasestorage.app",
+            messagingSenderId: "243976749782",
+            appId: "1:243976749782:web:b63b861f4c8f390aa07f77",
+            measurementId: "G-7ZFKKTM2JQ"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // ==========================================
+        // 2. 전역 상태 및 앱 시작 로직
+        // ==========================================
+        let nickname = localStorage.getItem('moktak_nick') || "";
+        let meritCount = localStorage.getItem('myMeritCount') ? parseInt(localStorage.getItem('myMeritCount')) : 0;
+        let isStarted = false;
+
+        const counterElement = document.getElementById('merit-counter');
+        const displayNickname = document.getElementById('display-nickname');
+        
+        // 이전에 저장된 닉네임이 있으면 입력창에 미리 채워둠
+        if (nickname) document.getElementById('nickname-input').value = nickname;
+
+        function startApp() {
+            const input = document.getElementById('nickname-input').value.trim();
+            if (!input) { alert("법명을 입력해야 수행을 시작할 수 있습니다."); return; }
+            
+            nickname = input;
+            localStorage.setItem('moktak_nick', nickname);
+            displayNickname.innerText = nickname;
+            document.getElementById('name-modal').style.display = 'none';
+            
+            // 파이어베이스에서 기존 점수 확인 후 더 높은 점수로 동기화
+            db.collection("rankings").doc(nickname).get().then((doc) => {
+                if (doc.exists) {
+                    const serverScore = doc.data().score;
+                    if (serverScore > meritCount) {
+                        meritCount = serverScore;
+                        localStorage.setItem('myMeritCount', meritCount);
+                    }
+                }
+                updateCounterUI();
+            });
+
+            isStarted = true;
+            
+            // 오디오 권한 잠금 해제 (버튼 클릭 시점이므로 확실함)
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function updateCounterUI() {
+            counterElement.innerText = `누적 공덕: ${meritCount}`;
+        }
+
+        // ==========================================
+        // 3. 데이터베이스 저장 및 랭킹 조회 로직
+        // ==========================================
+        function syncScoreToServer() {
+            if (!isStarted || !nickname) return;
+            db.collection("rankings").doc(nickname).set({
+                name: nickname,
+                score: meritCount,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
+
+        // 랭킹 버튼 클릭
+        document.getElementById('rank-btn').addEventListener('click', (e) => {
+            document.getElementById('ranking-modal').style.display = 'flex';
+            const list = document.getElementById('ranking-list');
+            list.innerHTML = "<li>수행자 정보를 모으는 중...</li>";
+
+            db.collection("rankings").orderBy("score", "desc").limit(10).get().then((querySnapshot) => {
+                list.innerHTML = "";
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    list.innerHTML += `<li><span>${data.name}</span> <span>${data.score}</span></li>`;
+                });
+            }).catch((error) => {
+                list.innerHTML = "<li>랭킹을 불러오지 못했습니다.</li>";
+                console.error("Error getting rankings: ", error);
+            });
+            e.stopPropagation();
+        });
+
+        function closeRanking() {
+            document.getElementById('ranking-modal').style.display = 'none';
+        }
+
+        // ==========================================
+        // 4. 기존 목탁 시뮬레이터 로직 (그대로 유지)
+        // ==========================================
         const canvasElement = document.querySelector('.output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
         const gameContainer = document.getElementById('game-container');
         const pinBtn = document.getElementById('pin-btn');
         const minigameBtn = document.getElementById('minigame-btn');
         const soundBtn = document.getElementById('sound-btn');
-        const counterElement = document.getElementById('merit-counter');
         
-        let meritCount = localStorage.getItem('myMeritCount') ? parseInt(localStorage.getItem('myMeritCount')) : 0;
-        counterElement.innerText = `누적 공덕: ${meritCount}`;
+        updateCounterUI(); // 초기 UI 세팅
 
         const moktakImg = new Image();
         moktakImg.src = 'moktak.png'; 
@@ -261,29 +414,17 @@
             return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
         }
 
-        // ✅ [수정 1: Moktak 용] 예민한 주먹 감지 (조금만 구부려도 인식)
         function isSlightlyBentFist(landmarks) {
-            // 화면 기준 (Y축 아래가 +) 끝점(TIP)이 관절(MCP)보다 아래에 있으면 구부린 것으로 판단
-            // 검지(8, 5), 중지(12, 9), 약지(16, 13), 새끼(20, 17) 확인
             const indexFolded = landmarks[8].y > landmarks[5].y;
             const middleFolded = landmarks[12].y > landmarks[9].y;
             const ringFolded = landmarks[16].y > landmarks[13].y;
             const pinkyFolded = landmarks[20].y > landmarks[17].y;
-            
-            // 엄지를 제외한 네 손가락이 조금이라도 구부려져 있으면 주먹으로 인정
             return indexFolded && middleFolded && ringFolded && pinkyFolded;
         }
 
-        // ✅ [수정 2: Stick 용] 검지만 편 상태 (포인팅) 감지
         function isPointing(landmarks) {
-            // 검지 세움 확인: 끝점(8)이 중간관절(6)보다 위에 있음 (Y값이 작음)
             const indexErect = landmarks[8].y < landmarks[6].y;
-            
-            // 나머지 손가락 구부림 확인 (중지만 확인해도 충분히 구분됨)
-            // 중지 구부림: 끝점(12)이 관절(10)보다 아래에 있음
             const middleFolded = landmarks[12].y > landmarks[10].y;
-            
-            // 검지는 펴고 중지는 굽혔을 때만 채로 인식
             return indexErect && middleFolded;
         }
 
@@ -332,25 +473,18 @@
                     const landmarks = results.multiHandLandmarks[i];
                     const handedness = results.multiHandedness[i].label; 
 
-                    // ✋ 오른손 (카메라 Left) -> Stick 역할
                     if (handedness === 'Left') {
-                        // 검지 포인팅 감지
                         if (isPointing(landmarks)) {
-                            // 채 위치: 검지 중간 관절 (6번)
                             activeSticks.push({ x: landmarks[6].x * canvasWidth, y: landmarks[6].y * canvasHeight });
                         }
                     } 
-                    // 🤚 왼손 (카메라 Right) -> Moktak 역할
                     else if (handedness === 'Right') {
-                        // 고정/미니게임 모드일 땐 왼손도 채로 변신 가능
                         if (isPinned || isMiniGame) {
                             if (isPointing(landmarks)) {
                                 activeSticks.push({ x: landmarks[6].x * canvasWidth, y: landmarks[6].y * canvasHeight });
                             }
                         } 
-                        // 기본 모드: 왼손 주먹 쥐면 목탁 나옴
                         else {
-                            // 예민한 주먹 감지 적용
                             if (isSlightlyBentFist(landmarks)) {
                                 currentMoktakX = landmarks[10].x * canvasWidth;
                                 currentMoktakY = landmarks[10].y * canvasHeight;
@@ -378,13 +512,19 @@
                 }
             }
 
-            if (currentlyInside && !wasInside) {
+            // 충돌 감지 로직 및 파이어베이스 연동 추가 부분
+            if (currentlyInside && !wasInside && isStarted) {
                 playMoktakSound();
                 spawnFloatingText(); 
                 
                 meritCount++;
-                counterElement.innerText = `누적 공덕: ${meritCount}`;
+                updateCounterUI();
                 localStorage.setItem('myMeritCount', meritCount);
+
+                // 너무 잦은 서버 통신을 막기 위해 5번 칠 때마다 서버에 동기화
+                if (meritCount % 5 === 0) {
+                    syncScoreToServer();
+                }
 
                 if (isMiniGame) {
                     flyingVx = -flyingVx * 1.15;
